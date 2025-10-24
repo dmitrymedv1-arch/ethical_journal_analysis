@@ -351,7 +351,7 @@ def main():
     # Sidebar for input
     with st.sidebar:
         st.header("🔍 Analysis Parameters")
-        issn = st.text_input("ISSN", value="2949-0561", placeholder="e.g., 1234-5678")
+        issn = st.text_input("ISSN", value="XXXX-YYYY", placeholder="e.g., 1234-5678")
         period = st.text_input("Period", value="2023-2025", placeholder="e.g., 2020-2023 or 2020,2021,2022")
         
         st.markdown("---")
@@ -811,4 +811,5 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
             )
 
 if __name__ == "__main__":
+
     main()
