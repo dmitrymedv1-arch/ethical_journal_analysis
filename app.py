@@ -435,27 +435,21 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
         status_text.text(f"    Self-citations found: {self_citation_count}")
     return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count
 
-def calculate_impact_factor(issn, citation_year, publication_years):
-    """Расчет импакт-фактора журнала"""
-    st.header(" Impact Factor Calculation")
+def calculate_journal_impact_factor(issn, citation_year, publication_years, status_text, progress_bar):
+    """Расчет импакт-фактора журнала как часть общего анализа"""
+    
+    status_text.text(f" Calculating Impact Factor for {citation_year}...")
     
     # Создаем даты для запроса к Crossref
     from_date = f"{min(publication_years)}-01-01"
     until_date = f"{max(publication_years)}-12-31"
     
-    st.info(f"""
-    **Impact Factor Calculation for {citation_year}:**
-    - **Citation Year:** {citation_year}
-    - **Publication Years:** {publication_years[0]} and {publication_years[1]}
-    - **Formula:** Citations in {citation_year} to articles published in {publication_years[0]}-{publication_years[1]} / Number of citable items published in {publication_years[0]}-{publication_years[1]}
-    """)
-    
     # Получаем статьи за период публикации
-    with st.spinner(f"Fetching articles from {min(publication_years)} to {max(publication_years)}..."):
-        articles = fetch_crossref_articles(issn, from_date, until_date)
+    status_text.text(f" Fetching articles from {min(publication_years)} to {max(publication_years)} for Impact Factor calculation...")
+    articles = fetch_crossref_articles(issn, from_date, until_date)
     
     if not articles:
-        st.error("No articles found for the publication period")
+        status_text.text(" No articles found for Impact Factor calculation period")
         return None, None, None
     
     # Фильтруем статьи по годам публикации
@@ -467,7 +461,7 @@ def calculate_impact_factor(issn, citation_year, publication_years):
             if pub_year in publication_years:
                 publication_articles.append(article)
     
-    st.success(f"Found {len(publication_articles)} articles published in {publication_years[0]} and {publication_years[1]}")
+    status_text.text(f" Found {len(publication_articles)} articles published in {publication_years[0]} and {publication_years[1]}")
     
     # Собираем DOI статей за период публикации
     publication_dois = []
@@ -480,13 +474,13 @@ def calculate_impact_factor(issn, citation_year, publication_years):
     total_citations = 0
     citation_details = []
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    if_progress_bar = st.progress(0)
+    if_status_text = st.empty()
     
     for i, doi in enumerate(publication_dois):
-        status_text.text(f"Analyzing citations for article {i+1}/{len(publication_dois)}: {doi[:30]}...")
+        if_status_text.text(f" Impact Factor: Analyzing citations for article {i+1}/{len(publication_dois)}...")
         
-        citing_articles = get_citing_articles_openalex_with_years(doi, citation_year, progress_bar, status_text)
+        citing_articles = get_citing_articles_openalex_with_years(doi, citation_year, if_progress_bar, if_status_text)
         
         # Считаем только цитирования за целевой год
         citations_for_article = len([a for a in citing_articles if a['year'] == citation_year])
@@ -499,12 +493,12 @@ def calculate_impact_factor(issn, citation_year, publication_years):
         
         # Обновляем прогресс
         progress = (i + 1) / len(publication_dois)
-        progress_bar.progress(progress)
+        if_progress_bar.progress(progress)
         
         time.sleep(0.2)  # Быть вежливым к API
     
-    progress_bar.empty()
-    status_text.empty()
+    if_progress_bar.empty()
+    if_status_text.empty()
     
     # Рассчитываем импакт-фактор
     if len(publication_articles) > 0:
@@ -512,36 +506,7 @@ def calculate_impact_factor(issn, citation_year, publication_years):
     else:
         impact_factor = 0
     
-    # Отображаем результаты
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Publication Years", f"{publication_years[0]}-{publication_years[1]}")
-    with col2:
-        st.metric("Citation Year", citation_year)
-    with col3:
-        st.metric("Citable Items", len(publication_articles))
-    with col4:
-        st.metric("Total Citations", total_citations)
-    
-    st.success(f"## Impact Factor {citation_year}: {impact_factor:.4f}")
-    
-    # Детальная информация по цитированиям
-    if citation_details:
-        citation_df = pd.DataFrame(citation_details)
-        st.subheader("Citation Details by Article")
-        st.dataframe(citation_df, use_container_width=True)
-        
-        # Статистика цитирований
-        st.subheader("Citation Statistics")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Average Citations per Article", f"{citation_df['Citations'].mean():.2f}")
-        with col2:
-            st.metric("Median Citations", f"{citation_df['Citations'].median():.2f}")
-        with col3:
-            uncited_articles = len([x for x in citation_df['Citations'] if x == 0])
-            st.metric("Uncited Articles", uncited_articles)
+    status_text.text(f" Impact Factor {citation_year} calculated: {impact_factor:.4f}")
     
     return impact_factor, total_citations, len(publication_articles)
 
@@ -568,30 +533,8 @@ def main():
         1. Enter the journal ISSN
         2. Specify the period (year range or individual years)
         3. Click 'Start Analysis' button
-        4. Wait for comprehensive results
+        4. Wait for comprehensive results including Impact Factor
         """)
-
-    # Кнопка для расчета импакт-фактора
-    st.sidebar.markdown("---")
-    st.sidebar.header("Impact Factor Analysis")
-    if st.sidebar.button(" Calculate Impact Factor", type="secondary"):
-        if not issn:
-            st.error("Please enter an ISSN")
-        else:
-            citation_year, publication_years = calculate_impact_factor_years()
-            impact_factor, total_citations, citable_items = calculate_impact_factor(
-                issn, citation_year, publication_years
-            )
-            
-            # Сохраняем результаты в session state для использования в основном анализе
-            if impact_factor is not None:
-                st.session_state.impact_factor = {
-                    'year': citation_year,
-                    'value': impact_factor,
-                    'citations': total_citations,
-                    'items': citable_items,
-                    'publication_years': publication_years
-                }
 
     # Main analysis
     if st.button(" Start Comprehensive Analysis", type="primary"):
@@ -634,6 +577,26 @@ def get_articles_analysis(issn, period):
     # Progress tracking
     progress_bar = st.progress(0)
     status_text = st.empty()
+
+    # Расчет импакт-фактора в начале анализа
+    status_text.text(" Determining Impact Factor calculation parameters...")
+    citation_year, publication_years = calculate_impact_factor_years()
+    
+    impact_factor_data = None
+    # Вычисляем импакт-фактор только если период анализа включает нужные годы
+    if any(year in years_range for year in publication_years + [citation_year]):
+        impact_factor, total_citations, citable_items = calculate_journal_impact_factor(
+            issn, citation_year, publication_years, status_text, progress_bar
+        )
+        if impact_factor is not None:
+            impact_factor_data = {
+                'year': citation_year,
+                'value': impact_factor,
+                'citations': total_citations,
+                'items': citable_items,
+                'publication_years': publication_years
+            }
+            st.session_state.impact_factor = impact_factor_data
 
     # Fetch data from Crossref
     status_text.text(" Fetching data from Crossref...")
@@ -863,34 +826,35 @@ def get_articles_analysis(issn, period):
         reference_analysis_df, citation_analysis_df, all_countries,
         crossref_items, articles_with_institutions, total_institutions_count,
         author_freq, institution_freq, all_citing_authors, all_citing_journals,
-        all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations
+        all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
+        impact_factor_data
     )
 
 def display_results(author_freq_df, institution_freq_df, self_citation_df, 
                    reference_analysis_df, citation_analysis_df, all_countries,
                    crossref_items, articles_with_institutions, total_institutions_count,
                    author_freq, institution_freq, all_citing_authors, all_citing_journals,
-                   all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations):
+                   all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
+                   impact_factor_data=None):
     """Display comprehensive results in Streamlit"""
     
     st.success(" Analysis completed successfully!")
     
     # Показываем импакт-фактор если он был рассчитан
-    if hasattr(st.session_state, 'impact_factor'):
-        if_data = st.session_state.impact_factor
+    if impact_factor_data:
         st.header(" Journal Impact Factor")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Impact Factor Year", if_data['year'])
+            st.metric("Impact Factor Year", impact_factor_data['year'])
         with col2:
-            st.metric("Publication Years", f"{if_data['publication_years'][0]}-{if_data['publication_years'][1]}")
+            st.metric("Publication Years", f"{impact_factor_data['publication_years'][0]}-{impact_factor_data['publication_years'][1]}")
         with col3:
-            st.metric("Citable Items", if_data['items'])
+            st.metric("Citable Items", impact_factor_data['items'])
         with col4:
-            st.metric("Total Citations", if_data['citations'])
+            st.metric("Total Citations", impact_factor_data['citations'])
         
-        st.success(f"## Impact Factor {if_data['year']}: {if_data['value']:.4f}")
+        st.success(f"## Impact Factor {impact_factor_data['year']}: {impact_factor_data['value']:.4f}")
 
     # 1. Author Frequency
     st.header(" Author Frequency Analysis")
