@@ -65,7 +65,6 @@ def get_openalex_work_by_doi(doi):
         return None
     
     try:
-        # Normalize DOI for OpenAlex
         if not doi.startswith('https://doi.org/'):
             doi_url = f"https://doi.org/{doi}"
         else:
@@ -92,7 +91,6 @@ def get_citing_articles_openalex(doi, progress_bar=None, status_text=None):
     if doi == 'N/A':
         return citing_dois
     
-    # Get work data first
     work_data = get_openalex_work_by_doi(doi)
     if not work_data:
         return citing_dois
@@ -102,9 +100,8 @@ def get_citing_articles_openalex(doi, progress_bar=None, status_text=None):
         status_text.text(f"   📊 Article has {cited_by_count} citations")
     
     if cited_by_count > 0:
-        # Get list of ALL citing works with pagination
         page = 1
-        per_page = 200  # Maximum per page
+        per_page = 200
         cited_by_url = f"https://api.openalex.org/works?filter=cites:{work_data['id']}&per-page={per_page}"
         
         while cited_by_url:
@@ -117,7 +114,6 @@ def get_citing_articles_openalex(doi, progress_bar=None, status_text=None):
                     results = cited_data.get('results', [])
                     
                     for work in results:
-                        # Extract DOI from citing work
                         if work.get('doi'):
                             citing_doi = work['doi']
                             if citing_doi.startswith('https://doi.org/'):
@@ -132,16 +128,14 @@ def get_citing_articles_openalex(doi, progress_bar=None, status_text=None):
                     if status_text:
                         status_text.text(f"   ✅ Page {page}: found {len(results)} citing articles")
                     
-                    # Update progress
                     if progress_bar and cited_by_count > 0:
                         progress = min(page * per_page / cited_by_count, 1.0)
                         progress_bar.progress(progress)
                     
-                    # Check for next page
                     cited_by_url = cited_data.get('meta', {}).get('next_page')
                     if cited_by_url:
                         page += 1
-                        time.sleep(0.3)  # Be polite to API
+                        time.sleep(0.3)
                     else:
                         break
                 else:
@@ -189,7 +183,7 @@ def extract_institutions_crossref(authors_list):
             for affiliation in author['affiliation']:
                 if affiliation.get('name'):
                     institutions.append(affiliation['name'])
-    return list(set(institutions))  # Return unique institutions
+    return list(set(institutions))
 
 def extract_institutions_openalex(authorships):
     """Extract UNIQUE institutions from OpenAlex authorships"""
@@ -199,12 +193,11 @@ def extract_institutions_openalex(authorships):
         for institution in authorship.get('institutions', []):
             if institution.get('display_name'):
                 institutions.append(institution['display_name'])
-            # Extract country information
             if institution.get('country_code'):
                 countries.append(institution['country_code'])
             elif institution.get('country'):
                 countries.append(institution['country'])
-    return list(set(institutions)), list(set(countries))  # Return unique institutions and countries
+    return list(set(institutions)), list(set(countries))
 
 def analyze_references(doi):
     """Analyze references for a given DOI"""
@@ -228,12 +221,11 @@ def analyze_references(doi):
                 else:
                     refs_without_doi += 1
     except:
-        # Try OpenAlex as fallback
         work_data = get_openalex_work_by_doi(doi)
         if work_data:
             references = work_data.get('referenced_works', [])
             total_refs = len(references)
-            refs_with_doi = total_refs  # In OpenAlex, referenced works typically have IDs
+            refs_with_doi = total_refs
             refs_without_doi = 0
     
     return total_refs, refs_with_doi, refs_without_doi
@@ -254,18 +246,14 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
     if status_text:
         status_text.text(f"   🔍 Analyzing ALL {len(citing_dois)} citing articles...")
     
-    # Analyze ALL citing articles - NO LIMITS
     for i, citing_doi in enumerate(citing_dois):
         try:
-            # Get citing article details from OpenAlex
             work_data = get_openalex_work_by_doi(citing_doi)
             if work_data:
-                # Citing journal - FIXED: Extract proper journal/venue information
                 source = work_data.get('primary_location', {}).get('source', {})
                 host_venue = work_data.get('host_venue', {})
                 
                 journal_name = None
-                # Try multiple sources for journal name
                 if source and source.get('display_name'):
                     journal_name = source['display_name']
                 elif host_venue and host_venue.get('display_name'):
@@ -275,12 +263,8 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
                 
                 if journal_name:
                     citing_journals.append(journal_name)
-                    
-                    # IMPROVED SELF-CITATION DETECTION
-                    # Check for self-citation by ISSN or journal name similarity
                     is_self_citation = False
                     
-                    # Method 1: Check by ISSN in host_venue
                     if host_venue and host_venue.get('issn'):
                         venue_issns = host_venue['issn']
                         if isinstance(venue_issns, str):
@@ -288,7 +272,6 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
                         if target_issn in venue_issns:
                             is_self_citation = True
                     
-                    # Method 2: Check by journal name similarity (fallback)
                     if not is_self_citation and target_journal_name and target_journal_name.lower() in journal_name.lower():
                         is_self_citation = True
                     
@@ -297,7 +280,6 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
                         if status_text:
                             status_text.text(f"   🔍 Self-citation detected: {journal_name}")
                 
-                # Citing authors and institutions
                 authorships = work_data.get('authorships', [])
                 for authorship in authorships:
                     author = authorship.get('author', {})
@@ -308,13 +290,11 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
                             first_initial = name_parts[0][0] if name_parts[0] else ''
                             citing_authors.append(f"{surname} {first_initial}.")
                     
-                    # Institutions and countries - COUNT UNIQUE per article
                     article_institutions = set()
                     article_countries = set()
                     for institution in authorship.get('institutions', []):
                         if institution.get('display_name'):
                             article_institutions.add(institution['display_name'])
-                        # FIXED: Extract country information properly
                         if institution.get('country_code'):
                             article_countries.add(institution['country_code'])
                         elif institution.get('country'):
@@ -323,11 +303,10 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
                     citing_institutions.extend(list(article_institutions))
                     citing_countries.extend(list(article_countries))
                 
-                # Progress update for large citation sets
                 if status_text and (i + 1) % 50 == 0:
                     status_text.text(f"   ↳ Processed {i + 1}/{len(citing_dois)} citing articles...")
                 
-                time.sleep(0.1)  # Be polite to API
+                time.sleep(0.1)
                 
         except Exception as e:
             st.warning(f"   ❌ Error analyzing citing article {citing_doi}: {e}")
@@ -337,6 +316,50 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
         status_text.text(f"   ✅ Completed analysis of {len(citing_dois)} citing articles")
         status_text.text(f"   🔄 Self-citations found: {self_citation_count}")
     return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count
+
+def calculate_impact_factor(issn, crossref_items, current_date):
+    """Calculate Impact Factor for the journal based on the previous year."""
+    current_year = current_date.year
+    citation_year = current_year - 1  # Прошлый год (2024 для 2025)
+    article_years = [citation_year - 1, citation_year - 2]  # 2023 и 2022 для 2025
+
+    articles_in_period = []
+    for item in crossref_items:
+        date_parts = item.get('published', {}).get('date-parts', [])
+        if date_parts and date_parts[0]:
+            publication_year = date_parts[0][0]
+            if publication_year in article_years:
+                articles_in_period.append(item)
+
+    dois_in_period = [item.get('DOI') for item in articles_in_period if item.get('DOI')]
+    
+    if not dois_in_period:
+        return 0.0, 0, 0, article_years, citation_year
+
+    total_citations = 0
+    status_text = st.empty()
+    progress_bar = st.progress(0)
+
+    for i, doi in enumerate(dois_in_period):
+        status_text.text(f"📊 Проверяем цитирования для DOI {doi[:50]} в {citation_year}...")
+        citing_dois = get_citing_articles_openalex(doi, progress_bar, status_text)
+        
+        for citing_doi in citing_dois:
+            work_data = get_openalex_work_by_doi(citing_doi)
+            if work_data:
+                pub_year = work_data.get('publication_year')
+                if pub_year == citation_year:
+                    total_citations += 1
+        
+        progress_bar.progress((i + 1) / len(dois_in_period))
+
+    num_articles = len(dois_in_period)
+    impact_factor = total_citations / num_articles if num_articles > 0 else 0.0
+
+    status_text.empty()
+    progress_bar.empty()
+    
+    return impact_factor, total_citations, num_articles, article_years, citation_year
 
 def main():
     st.title("📊 Enhanced Journal Quality Analysis Tool")
@@ -348,7 +371,6 @@ def main():
     - ✅ **Complete statistical accuracy**
     """)
     
-    # Sidebar for input
     with st.sidebar:
         st.header("🔍 Analysis Parameters")
         issn = st.text_input("ISSN", value="XXXX-YYYY", placeholder="e.g., 1234-5678")
@@ -363,13 +385,11 @@ def main():
         4. Wait for comprehensive results
         """)
     
-    # Main analysis
     if st.button("🚀 Start Comprehensive Analysis", type="primary"):
         if not issn:
             st.error("Please enter an ISSN")
             return
         
-        # Initialize session state for results
         if 'analysis_results' not in st.session_state:
             st.session_state.analysis_results = {}
         
@@ -377,9 +397,8 @@ def main():
             get_articles_analysis(issn, period)
 
 def get_articles_analysis(issn, period):
-    """Main analysis function adapted for Streamlit"""
+    """Main analysis function adapted for Streamlit with Impact Factor calculation"""
     
-    # Parse period
     if '-' in period:
         years = period.split('-')
         from_year = years[0].strip()
@@ -401,11 +420,9 @@ def get_articles_analysis(issn, period):
         to_year = period.strip()
         years_range = [int(period.strip())]
 
-    # Progress tracking
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # Fetch data from Crossref
     status_text.text("📥 Fetching data from Crossref...")
     crossref_items = fetch_crossref_articles(issn, from_date, until_date)
     
@@ -415,7 +432,6 @@ def get_articles_analysis(issn, period):
     
     status_text.text(f"✅ Found {len(crossref_items)} articles in Crossref")
     
-    # Try to get target journal name from first article
     target_journal_name = None
     if crossref_items and crossref_items[0].get('container-title'):
         container_title = crossref_items[0].get('container-title')
@@ -426,7 +442,6 @@ def get_articles_analysis(issn, period):
                 target_journal_name = container_title
             st.info(f"📖 Target journal: {target_journal_name}")
     
-    # Extract DOI list from Crossref results
     dois = []
     for item in crossref_items:
         doi = item.get('DOI')
@@ -436,7 +451,10 @@ def get_articles_analysis(issn, period):
     status_text.text(f"📋 Extracted {len(dois)} unique DOIs for analysis")
     progress_bar.progress(0.1)
 
-    # Process data
+    current_date = datetime(2025, 10, 25)  # Текущая дата
+    status_text.text("📊 Calculating Impact Factor...")
+    impact_factor, total_citations, num_articles, article_years, citation_year = calculate_impact_factor(issn, crossref_items, current_date)
+    
     all_authors = []
     all_institutions = []
     all_countries = []
@@ -447,19 +465,16 @@ def get_articles_analysis(issn, period):
     all_citing_institutions = []
     all_citing_countries = []
     
-    # Process authors and institutions from Crossref
     status_text.text("👥 Processing author and institution data from Crossref...")
     
     articles_with_institutions = 0
     total_institutions_count = 0
     
     for i, item in enumerate(crossref_items):
-        # Authors
         authors = item.get('author', [])
         author_names = extract_author_names(authors)
         all_authors.extend(author_names)
         
-        # Institutions - COUNT UNIQUE PER ARTICLE
         article_institutions = extract_institutions_crossref(authors)
         if article_institutions:
             articles_with_institutions += 1
@@ -468,7 +483,6 @@ def get_articles_analysis(issn, period):
     
     progress_bar.progress(0.3)
     
-    # Enhanced analysis for ALL articles
     status_text.text(f"🔍 Starting enhanced OpenAlex analysis for ALL {len(dois)} articles...")
     
     openalex_institutions_count = 0
@@ -477,11 +491,9 @@ def get_articles_analysis(issn, period):
     for i, doi in enumerate(dois):
         status_text.text(f"📊 Analyzing article {i+1}/{len(dois)}: {doi[:50]}...")
         
-        # Get OpenAlex data for this DOI
         work_data = get_openalex_work_by_doi(doi)
         
         if work_data:
-            # Extract institutions and countries from OpenAlex
             authorships = work_data.get('authorships', [])
             article_institutions_openalex, article_countries_openalex = extract_institutions_openalex(authorships)
             if article_institutions_openalex:
@@ -491,7 +503,6 @@ def get_articles_analysis(issn, period):
                 openalex_countries_count += len(article_countries_openalex)
                 all_countries.extend(article_countries_openalex)
             
-            # Get publication year
             publication_year = work_data.get('publication_year')
             if not publication_year:
                 for item in crossref_items:
@@ -501,7 +512,6 @@ def get_articles_analysis(issn, period):
                             publication_year = date_parts[0][0]
                         break
             
-            # Enhanced citation analysis
             if publication_year and publication_year in years_range:
                 article_progress = st.empty()
                 citing_authors, citing_journals, citing_institutions, citing_countries, self_citations = get_citation_analysis_enhanced(
@@ -518,12 +528,10 @@ def get_articles_analysis(issn, period):
                 all_citing_countries.extend(citing_countries)
                 article_progress.empty()
         
-        # Update overall progress
         progress = 0.3 + (i / len(dois)) * 0.4
         progress_bar.progress(progress)
         time.sleep(0.5)
     
-    # Reference analysis
     status_text.text("📚 Analyzing references...")
     for i, doi in enumerate(dois):
         total_refs, refs_with_doi, refs_without_doi = analyze_references(doi)
@@ -536,18 +544,14 @@ def get_articles_analysis(issn, period):
     
     progress_bar.progress(0.9)
     
-    # Create analysis reports
     status_text.text("📈 Generating analysis reports...")
     
-    # 1. Author Frequency
     author_freq = Counter(all_authors)
     author_freq_df = pd.DataFrame(author_freq.most_common(50), columns=['Author', 'Frequency'])
     
-    # 2. Institution Frequency
     institution_freq = Counter(all_institutions)
     institution_freq_df = pd.DataFrame(institution_freq.most_common(50), columns=['Institution', 'Frequency'])
     
-    # 3. Self-citation analysis
     self_citation_data = []
     total_self_citations = 0
     total_all_citations = 0
@@ -573,7 +577,6 @@ def get_articles_analysis(issn, period):
     
     self_citation_df = pd.DataFrame(self_citation_data)
     
-    # 4. Reference analysis summary
     if reference_stats:
         ref_df = pd.DataFrame(reference_stats)
         total_refs_sum = ref_df['Total References'].sum()
@@ -598,7 +601,6 @@ def get_articles_analysis(issn, period):
     else:
         reference_analysis_df = pd.DataFrame({'Metric': ['No data available'], 'Value': [0]})
     
-    # 5. Enhanced citation analysis
     citing_author_freq = Counter(all_citing_authors).most_common(20) if all_citing_authors else []
     citing_journal_freq = Counter(all_citing_journals).most_common(20) if all_citing_journals else []
     citing_institution_freq = Counter(all_citing_institutions).most_common(20) if all_citing_institutions else []
@@ -627,25 +629,29 @@ def get_articles_analysis(issn, period):
     progress_bar.progress(1.0)
     status_text.empty()
     
-    # Display results
     display_results(
         author_freq_df, institution_freq_df, self_citation_df, 
         reference_analysis_df, citation_analysis_df, all_countries,
         crossref_items, articles_with_institutions, total_institutions_count,
         author_freq, institution_freq, all_citing_authors, all_citing_journals,
-        all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations
+        all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
+        impact_factor, total_citations, num_articles, citation_year, article_years
     )
 
 def display_results(author_freq_df, institution_freq_df, self_citation_df, 
                    reference_analysis_df, citation_analysis_df, all_countries,
                    crossref_items, articles_with_institutions, total_institutions_count,
                    author_freq, institution_freq, all_citing_authors, all_citing_journals,
-                   all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations):
-    """Display comprehensive results in Streamlit"""
+                   all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
+                   impact_factor, total_citations, num_articles, citation_year, article_years):
+    """Display comprehensive results in Streamlit including Impact Factor"""
     
     st.success("✅ Analysis completed successfully!")
     
-    # 1. Author Frequency
+    st.header("📊 Impact Factor")
+    st.metric(f"Impact Factor ({citation_year})", f"{impact_factor:.2f}")
+    st.write(f"Calculated as {total_citations} citations in {citation_year} to {num_articles} articles published in {article_years[0]}–{article_years[1]}")
+    
     st.header("👥 Author Frequency Analysis")
     col1, col2 = st.columns([2, 1])
     
@@ -657,7 +663,6 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
         st.metric("Articles Analyzed", len(crossref_items))
         st.metric("Author Mentions", len(author_freq))
     
-    # 2. Institution Frequency
     st.header("🏛️ Institution Frequency Analysis")
     col1, col2 = st.columns([2, 1])
     
@@ -670,14 +675,12 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
         st.metric("Avg Institutions per Article", 
                  f"{total_institutions_count/len(crossref_items):.1f}" if len(crossref_items) > 0 else "N/A")
     
-    # 3. Country Analysis
     if all_countries:
         country_freq = Counter(all_countries)
         country_df = pd.DataFrame(country_freq.most_common(20), columns=['Country', 'Frequency'])
         st.header("🌍 Country Distribution Analysis")
         st.dataframe(country_df.head(20), use_container_width=True)
     
-    # 4. Self-citation Analysis
     st.header("🔄 Self-Citation Analysis")
     if not self_citation_df.empty and self_citation_df['Total Citations'].sum() > 0:
         col1, col2 = st.columns([1, 1])
@@ -692,18 +695,15 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
                 self_citation_rate = (total_self_citations / total_all_citations) * 100
                 st.metric("Overall Self-Citation Rate", f"{self_citation_rate:.2f}%")
         
-        # Plot self-citation trend
         if len(self_citation_df) > 1:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
             
-            # Bar chart
             ax1.bar(self_citation_df['Year'].astype(str), self_citation_df['Self Citation Rate (%)'])
             ax1.set_title('Self-Citation Rate by Year')
             ax1.set_xlabel('Year')
             ax1.set_ylabel('Self-Citation Rate (%)')
             ax1.tick_params(axis='x', rotation=45)
             
-            # Line chart
             ax2.plot(self_citation_df['Year'].astype(str), self_citation_df['Self Citation Rate (%)'], 
                     marker='o', linewidth=2, markersize=6, color='red')
             ax2.set_title('Self-Citation Trend')
@@ -717,16 +717,13 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
     else:
         st.info("No sufficient self-citation data available")
     
-    # 5. Reference Analysis
     st.header("📚 Reference Quality Analysis")
     st.dataframe(reference_analysis_df, use_container_width=True)
     
-    # 6. Citation Network Analysis
     st.header("🔗 Citation Network Analysis")
     if not citation_analysis_df.empty and citation_analysis_df.iloc[0, 0] != '':
         st.dataframe(citation_analysis_df, use_container_width=True)
         
-        # Citation metrics
         total_citing_authors = len(all_citing_authors)
         total_citing_journals = len(set(all_citing_journals))
         total_citing_institutions = len(set(all_citing_institutions))
@@ -744,11 +741,9 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
         with col5:
             st.metric("Total Citations", len(all_citing_journals))
         
-        # Visualization
         if total_citing_journals > 0:
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
             
-            # Top Citing Journals
             citing_journal_counts = Counter(all_citing_journals).most_common(10)
             if citing_journal_counts:
                 journals, counts = zip(*citing_journal_counts)
@@ -759,7 +754,6 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
                 ax1.set_xticks(range(len(journals)))
                 ax1.set_xticklabels([j[:20] + '...' for j in journals], rotation=45)
             
-            # Citation Distribution by Country
             citing_country_counts = Counter(all_citing_countries).most_common(10)
             if citing_country_counts:
                 countries, country_counts = zip(*citing_country_counts)
@@ -769,7 +763,6 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
                 ax2.text(0.5, 0.5, 'No country data', ha='center', va='center')
                 ax2.set_title('Citation Distribution by Country')
             
-            # Top Citing Authors
             author_citation_counts = Counter(all_citing_authors).most_common(10)
             if author_citation_counts:
                 authors, author_counts = zip(*author_citation_counts)
@@ -788,7 +781,6 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
     else:
         st.info("No citation analysis data available")
     
-    # Download section
     st.header("💾 Download Analysis Results")
     
     datasets = {
@@ -811,5 +803,4 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
             )
 
 if __name__ == "__main__":
-
     main()
