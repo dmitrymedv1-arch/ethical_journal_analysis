@@ -519,6 +519,7 @@ def main():
     -  **No limits on citation analysis**
     -  **Complete statistical accuracy**
     -  **Impact Factor Calculation**
+    -  ©Chimica Techno Acta, https://chimicatechnoacta.ru / ©developed by daM
     """)
 
     # Sidebar for input
@@ -1023,3 +1024,4 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
 
 if __name__ == "__main__":
     main()
+
