@@ -230,18 +230,19 @@ def analyze_references(doi):
     
     return total_refs, refs_with_doi, refs_without_doi
 
-def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, progress_bar=None, status_text=None):
+def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, progress_bar=None, status_text=None, citation_year=None):
     """Enhanced citation analysis using OpenAlex citing articles - ANALYZES ALL CITATIONS"""
     citing_authors = []
     citing_journals = []
     citing_institutions = []
     citing_countries = []
     self_citation_count = 0
+    citations_in_target_year = 0
     
     citing_dois = get_citing_articles_openalex(doi, progress_bar, status_text)
     
     if not citing_dois:
-        return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count
+        return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count, citations_in_target_year
     
     if status_text:
         status_text.text(f"   🔍 Analyzing ALL {len(citing_dois)} citing articles...")
@@ -250,6 +251,11 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
         try:
             work_data = get_openalex_work_by_doi(citing_doi)
             if work_data:
+                # Проверяем год цитирования для импакт-фактора
+                pub_year = work_data.get('publication_year')
+                if pub_year == citation_year:
+                    citations_in_target_year += 1
+                
                 source = work_data.get('primary_location', {}).get('source', {})
                 host_venue = work_data.get('host_venue', {})
                 
@@ -315,51 +321,9 @@ def get_citation_analysis_enhanced(doi, target_issn, target_journal_name=None, p
     if status_text:
         status_text.text(f"   ✅ Completed analysis of {len(citing_dois)} citing articles")
         status_text.text(f"   🔄 Self-citations found: {self_citation_count}")
-    return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count
-
-def calculate_impact_factor(issn, crossref_items, current_date):
-    """Calculate Impact Factor for the journal based on the previous year."""
-    current_year = current_date.year
-    citation_year = current_year - 1  # Прошлый год (2024 для 2025)
-    article_years = [citation_year - 1, citation_year - 2]  # 2023 и 2022 для 2025
-
-    articles_in_period = []
-    for item in crossref_items:
-        date_parts = item.get('published', {}).get('date-parts', [])
-        if date_parts and date_parts[0]:
-            publication_year = date_parts[0][0]
-            if publication_year in article_years:
-                articles_in_period.append(item)
-
-    dois_in_period = [item.get('DOI') for item in articles_in_period if item.get('DOI')]
-    
-    if not dois_in_period:
-        return 0.0, 0, 0, article_years, citation_year
-
-    total_citations = 0
-    status_text = st.empty()
-    progress_bar = st.progress(0)
-
-    for i, doi in enumerate(dois_in_period):
-        status_text.text(f"📊 Проверяем цитирования для DOI {doi[:50]} в {citation_year}...")
-        citing_dois = get_citing_articles_openalex(doi, progress_bar, status_text)
-        
-        for citing_doi in citing_dois:
-            work_data = get_openalex_work_by_doi(citing_doi)
-            if work_data:
-                pub_year = work_data.get('publication_year')
-                if pub_year == citation_year:
-                    total_citations += 1
-        
-        progress_bar.progress((i + 1) / len(dois_in_period))
-
-    num_articles = len(dois_in_period)
-    impact_factor = total_citations / num_articles if num_articles > 0 else 0.0
-
-    status_text.empty()
-    progress_bar.empty()
-    
-    return impact_factor, total_citations, num_articles, article_years, citation_year
+        if citation_year:
+            status_text.text(f"   📊 Citations in {citation_year}: {citations_in_target_year}")
+    return citing_authors, citing_journals, citing_institutions, citing_countries, self_citation_count, citations_in_target_year
 
 def main():
     st.title("📊 Enhanced Journal Quality Analysis Tool")
@@ -451,20 +415,30 @@ def get_articles_analysis(issn, period):
     status_text.text(f"📋 Extracted {len(dois)} unique DOIs for analysis")
     progress_bar.progress(0.1)
 
-    current_date = datetime(2025, 10, 25)  # Текущая дата
-    status_text.text("📊 Calculating Impact Factor...")
-    impact_factor, total_citations, num_articles, article_years, citation_year = calculate_impact_factor(issn, crossref_items, current_date)
-    
+    current_date = datetime(2025, 10, 25)
+    citation_year = current_date.year - 1  # 2024 для 2025
+    article_years = [citation_year - 1, citation_year - 2]  # 2023 и 2022
+
     all_authors = []
     all_institutions = []
     all_countries = []
-    self_citations_by_year = {year: {'total_citations': 0, 'self_citations': 0} for year in years_range}
+    self_citations_by_year = {year: {'total_citations': 0, 'self_citations': 0, 'citations_in_target_year': 0} for year in years_range}
     reference_stats = []
     all_citing_authors = []
     all_citing_journals = []
     all_citing_institutions = []
     all_citing_countries = []
     
+    articles_in_period = []
+    for item in crossref_items:
+        date_parts = item.get('published', {}).get('date-parts', [])
+        if date_parts and date_parts[0]:
+            publication_year = date_parts[0][0]
+            if publication_year in article_years:
+                articles_in_period.append(item)
+    
+    num_articles_for_if = len([item.get('DOI') for item in articles_in_period if item.get('DOI')])
+
     status_text.text("👥 Processing author and institution data from Crossref...")
     
     articles_with_institutions = 0
@@ -487,6 +461,7 @@ def get_articles_analysis(issn, period):
     
     openalex_institutions_count = 0
     openalex_countries_count = 0
+    total_citations_in_target_year = 0
     
     for i, doi in enumerate(dois):
         status_text.text(f"📊 Analyzing article {i+1}/{len(dois)}: {doi[:50]}...")
@@ -514,13 +489,17 @@ def get_articles_analysis(issn, period):
             
             if publication_year and publication_year in years_range:
                 article_progress = st.empty()
-                citing_authors, citing_journals, citing_institutions, citing_countries, self_citations = get_citation_analysis_enhanced(
-                    doi, issn, target_journal_name, progress_bar, article_progress
+                citing_authors, citing_journals, citing_institutions, citing_countries, self_citations, citations_in_target_year = get_citation_analysis_enhanced(
+                    doi, issn, target_journal_name, progress_bar, article_progress, citation_year
                 )
                 
                 total_citations_for_article = len(citing_journals)
                 self_citations_by_year[publication_year]['total_citations'] += total_citations_for_article
                 self_citations_by_year[publication_year]['self_citations'] += self_citations
+                self_citations_by_year[publication_year]['citations_in_target_year'] += citations_in_target_year
+                
+                if publication_year in article_years:
+                    total_citations_in_target_year += citations_in_target_year
                 
                 all_citing_authors.extend(citing_authors)
                 all_citing_journals.extend(citing_journals)
@@ -531,6 +510,8 @@ def get_articles_analysis(issn, period):
         progress = 0.3 + (i / len(dois)) * 0.4
         progress_bar.progress(progress)
         time.sleep(0.5)
+    
+    impact_factor = total_citations_in_target_year / num_articles_for_if if num_articles_for_if > 0 else 0.0
     
     status_text.text("📚 Analyzing references...")
     for i, doi in enumerate(dois):
@@ -559,6 +540,7 @@ def get_articles_analysis(issn, period):
     for year, stats in self_citations_by_year.items():
         total_citations = stats['total_citations']
         self_citations = stats['self_citations']
+        citations_in_target_year = stats['citations_in_target_year']
         
         if total_citations > 0:
             self_citation_rate = (self_citations / total_citations) * 100
@@ -569,6 +551,7 @@ def get_articles_analysis(issn, period):
             'Year': year,
             'Total Citations': total_citations,
             'Self Citations': self_citations,
+            f'Citations in {citation_year}': citations_in_target_year,
             'Self Citation Rate (%)': round(self_citation_rate, 2)
         })
         
@@ -635,7 +618,7 @@ def get_articles_analysis(issn, period):
         crossref_items, articles_with_institutions, total_institutions_count,
         author_freq, institution_freq, all_citing_authors, all_citing_journals,
         all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
-        impact_factor, total_citations, num_articles, citation_year, article_years
+        impact_factor, total_citations_in_target_year, num_articles_for_if, citation_year, article_years
     )
 
 def display_results(author_freq_df, institution_freq_df, self_citation_df, 
@@ -643,14 +626,14 @@ def display_results(author_freq_df, institution_freq_df, self_citation_df,
                    crossref_items, articles_with_institutions, total_institutions_count,
                    author_freq, institution_freq, all_citing_authors, all_citing_journals,
                    all_citing_institutions, all_citing_countries, total_self_citations, total_all_citations,
-                   impact_factor, total_citations, num_articles, citation_year, article_years):
+                   impact_factor, total_citations_in_target_year, num_articles_for_if, citation_year, article_years):
     """Display comprehensive results in Streamlit including Impact Factor"""
     
     st.success("✅ Analysis completed successfully!")
     
     st.header("📊 Impact Factor")
     st.metric(f"Impact Factor ({citation_year})", f"{impact_factor:.2f}")
-    st.write(f"Calculated as {total_citations} citations in {citation_year} to {num_articles} articles published in {article_years[0]}–{article_years[1]}")
+    st.write(f"Calculated as {total_citations_in_target_year} citations in {citation_year} to {num_articles_for_if} articles published in {article_years[0]}–{article_years[1]}")
     
     st.header("👥 Author Frequency Analysis")
     col1, col2 = st.columns([2, 1])
